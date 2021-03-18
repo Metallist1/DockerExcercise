@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Microsoft.AspNetCore.Mvc;
 using OrderApi.Data;
 using OrderApi.Infrastructure;
-using SharedModels;
+using OrderApi.Model;
 
 namespace OrderApi.Controllers
 {
@@ -12,15 +12,18 @@ namespace OrderApi.Controllers
     public class OrdersController : ControllerBase
     {
         IOrderRepository repository;
-        IServiceGateway<ProductDto> productServiceGateway;
+        IServiceGateway<ProductDTO> productServiceGateway;
+        IServiceGateway<CustomerDTO> customerServicegateway;
         IMessagePublisher messagePublisher;
 
         public OrdersController(IRepository<Order> repos,
-            IServiceGateway<ProductDto> gateway,
+            IServiceGateway<ProductDTO> gateway,
+            IServiceGateway<CustomerDTO> Cgateway,
             IMessagePublisher publisher)
         {
             repository = repos as IOrderRepository;
             productServiceGateway = gateway;
+            customerServicegateway = Cgateway;
             messagePublisher = publisher;
         }
 
@@ -51,8 +54,7 @@ namespace OrderApi.Controllers
             {
                 return BadRequest();
             }
-
-            if (ProductItemsAvailable(order))
+            if (ProductItemsAvailable(order) && IsCustomerOkay(order))
             {
                 try
                 {
@@ -92,6 +94,17 @@ namespace OrderApi.Controllers
             return true;
         }
 
+        private bool IsCustomerOkay(Order order)
+        {
+            var orderCustomer = customerServicegateway.Get(order.customerId);
+            // Call product service to get the product ordered.
+            if (orderCustomer.CreditStanding <= 0 )
+            {
+              return false;
+            }
+            return true;
+        }
+
         // PUT orders/5/cancel
         // This action method cancels an order and publishes an OrderStatusChangedMessage
         // with topic set to "cancelled".
@@ -108,7 +121,6 @@ namespace OrderApi.Controllers
             }
             try
             {
-               
                 messagePublisher.PublishOrderStatusChangedMessage(
                     order.customerId, order.OrderLines, "cancelled");
 
