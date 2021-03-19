@@ -1,4 +1,6 @@
 ﻿using EasyNetQ;
+using Microsoft.Extensions.DependencyInjection;
+using ProductApi.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -25,7 +27,8 @@ namespace CustomerAPI.Data.Listeners
         {
             using (var bus = RabbitHutch.CreateBus(connectionString))
             {
-
+                bus.PubSub.Subscribe<CustomerStatusChangedMessage>("productApiHkPaid",
+                    HandleOrderPaid, x => x.WithTopic("paid"));
                 // Add code to subscribe to other OrderStatusChanged events:
                 // * cancelled
                 // * shipped
@@ -43,6 +46,21 @@ namespace CustomerAPI.Data.Listeners
                 }
             }
 
+        }
+        private void HandleOrderPaid(CustomerStatusChangedMessage message)
+        {
+            // A service scope is created to get an instance of the product repository.
+            // When the service scope is disposed, the product repository instance will
+            // also be disposed.
+            using (var scope = provider.CreateScope())
+            {
+                var services = scope.ServiceProvider;
+                var customerRepo = services.GetService<ICustomerRepo>();
+                var cust = customerRepo.ReadById(message.CustomerId);
+
+                cust.CreditStanding = cust.CreditStanding - message.TotalPrice;
+                customerRepo.EditCustomer(cust);
+            }
         }
 
 

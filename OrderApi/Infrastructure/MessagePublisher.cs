@@ -20,6 +20,17 @@ namespace OrderApi.Infrastructure
             bus.Dispose();
         }
 
+        public void PublishCustomerStatusChangedMessage(int customerId, decimal totalPrice, string topic)
+        {
+            var message = new CustomerStatusChangedMessage
+            {
+                CustomerId = customerId,
+                TotalPrice = totalPrice
+            };
+
+            bus.PubSub.Publish(message, topic);
+        }
+
         public void PublishOrderStatusChangedMessage(int customerId, IList<OrderLine> orderLines, string topic)
         {
             var message = new OrderStatusChangedMessage

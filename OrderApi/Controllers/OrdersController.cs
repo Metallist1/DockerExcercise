@@ -54,19 +54,26 @@ namespace OrderApi.Controllers
             {
                 return BadRequest();
             }
-            if (ProductItemsAvailable(order) && IsCustomerOkay(order))
+            if (ProductItemsAvailable(order) != null)
             {
                 try
                 {
-                    // Publish OrderStatusChangedMessage. If this operation
-                    // fails, the order will not be created
-                    messagePublisher.PublishOrderStatusChangedMessage(
-                        order.customerId, order.OrderLines, "completed");
+                    if (IsCustomerOkay(order))
+                    {
+                        // Publish OrderStatusChangedMessage. If this operation
+                        // fails, the order will not be created
+                        messagePublisher.PublishOrderStatusChangedMessage(
+                            order.customerId, order.OrderLines, "completed");
 
-                    // Create order.
-                    order.Status = Order.OrderStatus.completed;
-                    var newOrder = repository.Add(order);
-                    return CreatedAtRoute("GetOrder", new { id = newOrder.Id }, newOrder);
+                        // Create order.
+                        order.Status = Order.OrderStatus.completed;
+                        var newOrder = repository.Add(order);
+                        return CreatedAtRoute("GetOrder", new { id = newOrder.Id }, newOrder);
+                    }
+                    else
+                    {
+                        return StatusCode(500, "User balance is broken");
+                    }
                 }
                 catch
                 {
@@ -80,18 +87,21 @@ namespace OrderApi.Controllers
             }
         }
 
-        private bool ProductItemsAvailable(Order order)
+        private Order ProductItemsAvailable(Order order)
         {
+            decimal totalPrice = 0m;
             foreach (var orderLine in order.OrderLines)
             {
                 // Call product service to get the product ordered.
                 var orderedProduct = productServiceGateway.Get(orderLine.ProductId);
+                totalPrice += orderedProduct.Price;
                 if (orderLine.Quantity > orderedProduct.ItemsInStock - orderedProduct.ItemsReserved)
                 {
-                    return false;
+                    return null;
                 }
             }
-            return true;
+            order.TotalPrice = totalPrice;
+            return order;
         }
 
         private bool IsCustomerOkay(Order order)
@@ -142,9 +152,28 @@ namespace OrderApi.Controllers
         [HttpPut("{id}/ship")]
         public IActionResult Ship(int id)
         {
-            throw new NotImplementedException();
+            var order = repository.Get(id);
+            if (order == null)
+            {
+                return NotFound();
+            }
+            if (order.Status == Order.OrderStatus.shipped)
+            {
+                return StatusCode(500, "Already paid");
+            }
+            try
+            {
+                messagePublisher.PublishOrderStatusChangedMessage(
+                    order.customerId, order.OrderLines, "shipped");
 
-            // Add code to implement this method.
+                order.Status = Order.OrderStatus.shipped;
+                repository.Edit(order);
+                return new NoContentResult();
+            }
+            catch
+            {
+                return StatusCode(500, "An error happened. Try again.");
+            }
         }
 
         // PUT orders/5/pay
@@ -153,9 +182,29 @@ namespace OrderApi.Controllers
         [HttpPut("{id}/pay")]
         public IActionResult Pay(int id)
         {
-            throw new NotImplementedException();
+            var order = repository.Get(id);
+            if (order == null)
+            {
+                return NotFound();
+            }
+            if (order.Status == Order.OrderStatus.paid)
+            {
+                return StatusCode(500, "Already paid");
+            }
+            try
+            {
+                messagePublisher.PublishCustomerStatusChangedMessage(
+                    order.customerId, order.TotalPrice, "paid");
 
-            // Add code to implement this method.
+                order.Status = Order.OrderStatus.paid;
+                repository.Edit(order);
+                return new NoContentResult();
+            }
+            catch
+            {
+                return StatusCode(500, "An error happened. Try again.");
+            }
+
         }
 
     }
